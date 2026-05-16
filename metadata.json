@@ -1,0 +1,6 @@
+{
+  "name": "Eliminador de Marcas de Agua PDF",
+  "description": "Una aplicación web para remover marcas de agua de correo electrónico de archivos PDF visualmente.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
