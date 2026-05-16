@@ -1,12 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UploadCloud, File as FileIcon, X, Download, Loader2, SlidersHorizontal, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import { UploadCloud, File as FileIcon, X, Download, Loader2, SlidersHorizontal, CheckCircle, AlertCircle, Eye, Maximize2 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { PDFDocument } from 'pdf-lib';
 import { cn } from './lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 
-// Require pdf.js worker locally via vite ?url to prevent detached array buffer errors
+// Request pdf.js worker local
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export default function App() {
@@ -14,8 +14,9 @@ export default function App() {
   const [pdfDocument, setPdfDocument] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
   const [originalImageData, setOriginalImageData] = useState<ImageData | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isPreviewExpanded, setIsPreviewExpanded] = useState(false);
   
-  const [intensity, setIntensity] = useState(40); // Slider 0 to 100
+  const [intensity, setIntensity] = useState(40); // 0 to 100
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [processedPdfBlob, setProcessedPdfBlob] = useState<Blob | null>(null);
@@ -41,6 +42,7 @@ export default function App() {
     setPreviewUrl(null);
     setProcessedPdfBlob(null);
     setError(null);
+    setIntensity(40);
     if (fileInputRef.current) {
         fileInputRef.current.value = "";
     }
@@ -57,7 +59,6 @@ export default function App() {
     canvas.width = viewport.width;
     canvas.height = viewport.height;
     
-    // Rellenamos de blanco en caso de que el PDF sea transparente
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
     
@@ -94,8 +95,8 @@ export default function App() {
       
       setPdfDocument(pdf);
       
-      // Renderizamos la priméra página en calidad baja (1.0) para preview rápida
-      const { imageData } = await renderPageToImageData(pdf, 1, 1.0);
+      // Render page 1 at a higher scale (1.5) for a crisp, readable preview
+      const { imageData } = await renderPageToImageData(pdf, 1, 1.5);
       setOriginalImageData(imageData);
     } catch (err: any) {
       console.error(err);
@@ -104,21 +105,24 @@ export default function App() {
     }
   };
 
-  // Efecto que actualiza la imagen de la vista previa en base a la intensidad
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setIntensity(parseInt(e.target.value));
+      // Invalidate the processed PDF so the user has to click "Process" again 
+      if (processedPdfBlob) setProcessedPdfBlob(null);
+  }
+
+  // Update preview image dynamically when intensity changes
   useEffect(() => {
     if (!originalImageData) return;
     
-    // whitePoint de 255 bajando conforme aumenta la intensidad (hasta ~100)
     const whitePoint = 255 - (intensity * 1.55);
     const factor = 255 / whitePoint;
     
-    // Clonamos para no afectar el caché original
     const data = new Uint8ClampedArray(originalImageData.data);
     for (let i = 0; i < data.length; i += 4) {
-      // Ajuste de "Puntos Blancos" (Stretching the contrast to eliminate light greys)
-      data[i] = Math.min(255, data[i] * factor);     // R
-      data[i+1] = Math.min(255, data[i+1] * factor); // G
-      data[i+2] = Math.min(255, data[i+2] * factor); // B
+      data[i] = Math.min(255, data[i] * factor);
+      data[i+1] = Math.min(255, data[i+1] * factor);
+      data[i+2] = Math.min(255, data[i+2] * factor);
     }
     
     const filtered = new ImageData(data, originalImageData.width, originalImageData.height);
@@ -129,7 +133,6 @@ export default function App() {
     const ctx = canvas.getContext('2d');
     ctx?.putImageData(filtered, 0, 0);
     
-    // Guardamos Data URL para el <img />
     setPreviewUrl(canvas.toDataURL('image/jpeg', 0.8));
   }, [intensity, originalImageData]);
 
@@ -145,7 +148,6 @@ export default function App() {
       const factor = 255 / whitePoint;
 
       for (let i = 1; i <= pdfDocument.numPages; i++) {
-        // Renderizamos a mayor escala para el PDF de salida final (resolución alta)
         const scale = 2.0; 
         const { imageData, width, height } = await renderPageToImageData(pdfDocument, i, scale);
         
@@ -162,11 +164,9 @@ export default function App() {
         const ctx = canvas.getContext('2d');
         ctx?.putImageData(imageData, 0, 0);
         
-        // JPG con buena compresión para no inflar el tamaño demasiado
         const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
         const img = await outPdf.embedJpg(dataUrl);
         
-        // Conservamos el ancho y alto del PDF original compensando la escala
         const pdfPageWidth = width / scale;
         const pdfPageHeight = height / scale;
         const page = outPdf.addPage([pdfPageWidth, pdfPageHeight]);
@@ -205,52 +205,35 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-900 flex items-center justify-center p-4 font-sans text-neutral-900">
-      <div className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-neutral-100 flex flex-col md:flex-row">
-        
-        {/* Panel lateral decorativo */}
-        <div className="bg-blue-600 md:w-1/3 p-8 text-white flex flex-col justify-between relative overflow-hidden shrink-0 hidden md:flex">
-          <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-repeat" />
-          <div className="relative z-10">
-            <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center mb-6">
-              <Sparkles className="w-6 h-6 text-blue-50" />
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight mb-4">Motor de Limpieza Óptica</h1>
-            <p className="text-blue-100 text-sm leading-relaxed mb-6">
-              Al tratarse de una marca de agua muy adherida al documento (texto dividido, rotado o con fuentes personalizadas), usaremos un algoritmo de "Ajuste de Punto Blanco" que disuelve la marca de agua visualmente.
-            </p>
+    <div className="min-h-screen bg-neutral-50 flex flex-col items-center p-4 md:p-8 font-sans text-neutral-900">
+      
+      {/* Header Logotipo / Titulo */}
+      <div className="w-full max-w-6xl mb-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-neutral-900 tracking-tight">Limpiador Óptico PDF</h1>
+            <p className="text-neutral-500">Ajusta la vista previa y remueve marcas de agua suavemente.</p>
           </div>
-          <div className="relative z-10 text-xs text-blue-200 opacity-80 mt-auto">
-            Renderizado por PDF.js v{pdfjsLib.version}<br/>
-            Manipulación por PDF-Lib
-          </div>
-        </div>
+      </div>
 
-        <div className="p-8 md:w-2/3 md:p-10 flex flex-col justify-center">
+      <div className="w-full max-w-6xl bg-white rounded-3xl shadow-xl border border-neutral-200 overflow-hidden">
+        {/* Main Workspace Workspace */}
+        <div className="p-6 md:p-8">
             
-          {/* Cabecera Móvil */}
-          <div className="md:hidden pb-6 mb-6 border-b border-neutral-100">
-             <h1 className="text-2xl font-bold tracking-tight mb-2">Motor Óptico</h1>
-             <p className="text-neutral-500 text-sm">Disuelve inteligentemente correos y marcas superpuestas.</p>
-          </div>
-
-          <div className="space-y-6">
-            
-            {/* Upload Area */}
             {!file ? (
+              // Empty State
               <div 
-                className="border-2 border-dashed border-neutral-300 rounded-xl p-12 text-center hover:bg-neutral-50 hover:border-neutral-400 transition-colors cursor-pointer group"
+                className="w-full max-w-2xl mx-auto border-2 border-dashed border-neutral-300 rounded-2xl p-16 text-center hover:bg-neutral-50 hover:border-blue-400 transition-colors cursor-pointer group my-12"
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <div className="w-16 h-16 bg-neutral-100 text-neutral-600 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform duration-300">
-                  <UploadCloud className="w-8 h-8" />
+                <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-105 transition-transform duration-300 shadow-inner">
+                  <UploadCloud className="w-10 h-10" />
                 </div>
-                <h3 className="text-lg font-medium text-neutral-800 mb-1">Subir documento PDF</h3>
-                <p className="text-sm text-neutral-500 mb-4">Arrastra aquí un archivo protegido con marca de agua</p>
-                <span className="bg-neutral-900 text-white px-5 py-2.5 rounded-lg text-sm font-medium shadow-sm hover:shadow-md transition-shadow">
-                    Seleccionar Archivo
+                <h3 className="text-2xl font-bold text-neutral-800 mb-2">Sube tu archivo PDF</h3>
+                <p className="text-neutral-500 mb-8 max-w-sm mx-auto">Arrastra y suelta tu documento aquí para comenzar a limpiarlo visualmente.</p>
+                <span className="bg-neutral-900 text-white px-8 py-3.5 rounded-xl font-medium shadow-md hover:bg-neutral-800 transition-colors">
+                    Examinar archivos
                 </span>
                 <input 
                   type="file" 
@@ -261,146 +244,183 @@ export default function App() {
                 />
               </div>
             ) : (
-                <div className="border border-neutral-200 rounded-xl p-4 flex items-center justify-between bg-neutral-50 shadow-sm">
-                    <div className="flex items-center gap-4 overflow-hidden">
-                        <div className="w-12 h-12 bg-red-100 text-red-600 rounded-lg flex items-center justify-center shrink-0">
-                            <FileIcon className="w-6 h-6" />
+                <div className="flex flex-col lg:flex-row gap-8">
+                    {/* Controls Panel (Left side) */}
+                    <div className="w-full lg:w-5/12 flex flex-col space-y-6">
+                        
+                        {/* File Info */}
+                        <div className="border border-neutral-200 rounded-2xl p-4 flex items-center justify-between bg-neutral-50 shadow-sm">
+                            <div className="flex items-center gap-4 overflow-hidden">
+                                <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center shrink-0">
+                                    <FileIcon className="w-6 h-6" />
+                                </div>
+                                <div className="overflow-hidden">
+                                    <p className="font-semibold text-neutral-800 truncate" title={file.name}>{file.name}</p>
+                                    <p className="text-xs text-neutral-500 font-medium">
+                                        {(file.size / 1024 / 1024).toFixed(2)} MB 
+                                        {pdfDocument && ` • ${pdfDocument.numPages} págs.`}
+                                    </p>
+                                </div>
+                            </div>
+                            <button 
+                                onClick={removeFile}
+                                disabled={isProcessing}
+                                className="p-2 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                                aria-label="Cambiar archivo"
+                                title="Cambiar archivo"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
                         </div>
-                        <div className="overflow-hidden">
-                            <p className="font-medium text-neutral-800 truncate">{file.name}</p>
-                            <p className="text-xs text-neutral-500">
-                                {(file.size / 1024 / 1024).toFixed(2)} MB 
-                                {pdfDocument && ` • ${pdfDocument.numPages} páginas`}
-                            </p>
-                        </div>
-                    </div>
-                    {!processedPdfBlob && !isProcessing && (
-                        <button 
-                            onClick={removeFile}
-                            className="p-2 text-neutral-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
-                            aria-label="Remove file"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-                    )}
-                </div>
-            )}
 
-            {/* Error Message */}
-            {error && (
-                <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1, y:0}} className="text-sm text-red-600 bg-red-50 border border-red-200 p-4 rounded-xl flex gap-3 items-start">
-                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                    <p>{error}</p>
-                </motion.div>
-            )}
-
-            {/* Configuración & Vista Previa */}
-            {file && !processedPdfBlob && pdfDocument && (
-              <motion.div 
-                initial={{ opacity: 0 }} 
-                animate={{ opacity: 1 }}
-                className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4 border-t border-neutral-100"
-              >
-                {/* Controles */}
-                <div className="space-y-6 flex flex-col">
-                  <div>
-                    <label className="flex justify-between items-center mb-3">
-                      <span className="font-medium text-neutral-800 flex items-center gap-2">
-                          <SlidersHorizontal className="w-4 h-4 text-blue-600" />
-                          Intensidad de Borrado
-                      </span>
-                      <span className="text-sm font-mono bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded-md">{intensity}%</span>
-                    </label>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={intensity}
-                      onChange={(e) => setIntensity(parseInt(e.target.value))}
-                      className="w-full accent-blue-600 h-2 bg-neutral-200 rounded-lg appearance-none cursor-pointer"
-                    />
-                    <p className="text-xs text-neutral-500 mt-3 leading-relaxed">
-                      Desliza a la derecha hasta que la marca desaparezca. La aplicación reescribe el PDF como imagen eliminando tonos grises (White Point).
-                    </p>
-                  </div>
-
-                  <div className="mt-auto pt-6">
-                      <button
-                        onClick={handleProcess}
-                        disabled={isProcessing}
-                        className="w-full bg-blue-600 text-white rounded-xl py-3.5 font-medium hover:bg-blue-700 active:bg-blue-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
-                      >
-                        {isProcessing ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            Generando PDF Nuevo ({progress}%)
-                          </>
-                        ) : (
-                          "Limpiar PDF Completo"
+                        {/* Error Alert */}
+                        {error && (
+                            <motion.div initial={{opacity:0, height:0}} animate={{opacity:1, height:'auto'}} className="overflow-hidden">
+                                <div className="text-sm text-red-700 bg-red-50 border border-red-200 p-4 rounded-xl flex gap-3 items-start">
+                                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                                    <p>{error}</p>
+                                </div>
+                            </motion.div>
                         )}
-                      </button>
-                  </div>
-                </div>
 
-                {/* Preview */}
-                <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-200">
-                  <h4 className="text-xs font-semibold text-neutral-400 mb-2 uppercase tracking-wider text-center">Vista Previa Dinámica (Pág. 1)</h4>
-                  {previewUrl ? (
-                    <div className="aspect-[1/1.414] relative bg-white shadow-sm border border-neutral-200 rounded-md overflow-hidden" 
-                         style={{backgroundImage: 'repeating-conic-gradient(#f0f0f0 0% 25%, transparent 0% 50%)', backgroundSize: '16px 16px', backgroundPosition: '0 0, 8px 8px'}}>
-                      <img src={previewUrl} alt="Vista previa filtrada" className="w-full h-full object-contain" />
+                        {/* Slider Configuration */}
+                        {pdfDocument && (
+                            <div className="bg-white border text-left border-neutral-200 rounded-2xl p-6 shadow-sm flex-1">
+                                <label className="flex justify-between items-center mb-4">
+                                  <span className="font-semibold text-neutral-800 flex items-center gap-2 text-lg">
+                                      <SlidersHorizontal className="w-5 h-5 text-blue-600" />
+                                      Intensidad de Borrado
+                                  </span>
+                                  <span className="text-sm font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded-lg border border-blue-100">
+                                      {intensity}%
+                                  </span>
+                                </label>
+                                <input
+                                  type="range"
+                                  min="0"
+                                  max="100"
+                                  value={intensity}
+                                  onChange={handleSliderChange}
+                                  className="w-full accent-blue-600 h-2.5 bg-neutral-100 rounded-lg appearance-none cursor-pointer mb-5"
+                                />
+                                <div className="text-sm text-neutral-500 leading-relaxed space-y-2">
+                                  <p>1. Ajusta el borrador fijándote en la <strong>Vista Previa grande</strong> a tu derecha. Los cambios son en tiempo real.</p>
+                                  <p>2. Cuando la marca de agua sea imperceptible en la previsualización, haz clic en procesar.</p>
+                                </div>
+
+                                {/* Process / Actions block */}
+                                <div className="mt-8">
+                                    {!processedPdfBlob ? (
+                                        <button
+                                            onClick={handleProcess}
+                                            disabled={isProcessing}
+                                            className="w-full bg-neutral-900 text-white rounded-xl py-4 font-semibold hover:bg-neutral-800 active:bg-neutral-950 transition-all disabled:opacity-50 flex items-center justify-center gap-3 shadow-lg hover:shadow-xl"
+                                        >
+                                            {isProcessing ? (
+                                                <>
+                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                                Aplicando a las {pdfDocument.numPages} págs ({progress}%)
+                                                </>
+                                            ) : (
+                                                "Limpiar Documento Completo"
+                                            )}
+                                        </button>
+                                    ) : (
+                                        <motion.div initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}}>
+                                            <div className="bg-green-50 border border-green-200 rounded-xl p-5 text-center">
+                                                <div className="flex justify-center mb-3">
+                                                    <div className="bg-green-100 text-green-600 p-2 rounded-full">
+                                                        <CheckCircle className="w-6 h-6" />
+                                                    </div>
+                                                </div>
+                                                <h4 className="text-green-800 font-bold mb-1">¡Documento Listo!</h4>
+                                                <p className="text-green-700 text-sm mb-5">
+                                                    Si el resultado es bueno, descárgalo. Si no, mueve el deslizador para recalcular.
+                                                </p>
+                                                <button 
+                                                    onClick={downloadProcessed}
+                                                    className="w-full bg-green-600 text-white rounded-xl py-3.5 font-bold hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-600/20"
+                                                >
+                                                    <Download className="w-5 h-5" />
+                                                    Descargar Nuevo PDF
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                  ) : (
-                    <div className="aspect-[1/1.414] flex flex-col items-center justify-center text-neutral-400">
-                       <Loader2 className="w-6 h-6 animate-spin mb-2" />
-                       <span className="text-xs">Extrayendo...</span>
+
+                    {/* Preview Panel (Right Side) */}
+                    <div className="w-full lg:w-7/12 flex flex-col">
+                        <div className="bg-neutral-900 rounded-2xl p-4 flex flex-col flex-1 shadow-inner relative border border-neutral-800 min-h-[500px]">
+                            <div className="flex justify-between items-center mb-4 px-2">
+                              <h3 className="font-semibold text-neutral-100 flex items-center gap-2">
+                                 <Eye className="w-4 h-4 text-blue-400" /> Vista Previa Dinámica (Pág. 1)
+                              </h3>
+                              <button 
+                                onClick={() => setIsPreviewExpanded(true)} 
+                                disabled={!previewUrl}
+                                className="p-2 hover:bg-white/10 rounded-lg text-neutral-300 transition-colors disabled:opacity-50" 
+                                title="Expandir a pantalla completa"
+                              >
+                                 <Maximize2 className="w-5 h-5" />
+                              </button>
+                            </div>
+
+                            <div className="flex-1 bg-black/40 rounded-xl overflow-hidden flex items-center justify-center p-4 relative" style={{backgroundImage: 'repeating-conic-gradient(rgba(255,255,255,0.03) 0% 25%, transparent 0% 50%)', backgroundSize: '20px 20px'}}>
+                              {previewUrl ? (
+                                 <img 
+                                    src={previewUrl} 
+                                    alt="Vista previa aplicando el filtro" 
+                                    className="max-w-full max-h-[600px] object-contain shadow-2xl bg-white transition-opacity duration-200" 
+                                 />
+                              ) : (
+                                <div className="flex flex-col items-center justify-center text-neutral-500">
+                                   {pdfDocument ? <Loader2 className="w-8 h-8 animate-spin mb-3" /> : null}
+                                   <span>{pdfDocument ? "Generando visualización..." : "Esperando archivo"}</span>
+                                </div>
+                              )}
+                            </div>
+                        </div>
                     </div>
-                  )}
+
                 </div>
-
-              </motion.div>
             )}
-
-            {/* Resultado Final */}
-            {processedPdfBlob && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.98 }} 
-                animate={{ opacity: 1, scale: 1 }}
-                className="pt-4 border-t border-neutral-100"
-              >
-                <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center space-y-5">
-                  <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
-                    <CheckCircle className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-green-900 mb-1">¡PDF Reconstruido con Éxito!</h3>
-                    <p className="text-sm text-green-700 max-w-sm mx-auto">
-                        Se ha eliminado el filtro visual aplicado en {pdfDocument?.numPages} páginas. El texto y los fondos han sido purificados.
-                    </p>
-                  </div>
-                  
-                  <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
-                    <button
-                        onClick={removeFile}
-                        className="px-6 py-3 bg-white text-neutral-700 font-medium rounded-xl border border-neutral-300 hover:bg-neutral-50 transition-colors"
-                    >
-                        Procesar otro archivo
-                    </button>
-                    <button
-                        onClick={downloadProcessed}
-                        className="px-6 py-3 bg-green-600 text-white font-medium rounded-xl hover:bg-green-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-green-600/20"
-                    >
-                        <Download className="w-5 h-5" />
-                        Descargar PDF
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-          </div>
         </div>
       </div>
+
+      {/* Expanded Preview Modal */}
+      <AnimatePresence>
+        {isPreviewExpanded && previewUrl && (
+           <motion.div 
+             initial={{opacity: 0}} 
+             animate={{opacity: 1}} 
+             exit={{opacity: 0}} 
+             className="fixed inset-0 z-50 bg-black/95 flex flex-col p-4 md:p-8 backdrop-blur-sm"
+           >
+              <div className="flex justify-between items-center mb-6 max-w-5xl mx-auto w-full">
+                  <span className="text-white/80 font-medium tracking-wide flex items-center gap-2"><Eye className="w-5 h-5"/> Vista Previa Ampliada</span>
+                  <button 
+                      onClick={() => setIsPreviewExpanded(false)} 
+                      className="p-3 bg-white/10 hover:bg-white/20 text-white rounded-full backdrop-blur-md transition-colors"
+                  >
+                      <X className="w-6 h-6" />
+                  </button>
+              </div>
+              <div className="flex-1 overflow-auto flex items-start justify-center pb-8 border border-white/10 rounded-2xl bg-neutral-900/50 p-4 md:p-10">
+                  {/* Let the image scroll if it's too tall by keeping h-auto */}
+                  <img 
+                      src={previewUrl} 
+                      className="w-full max-w-4xl h-auto object-contain bg-white shadow-[0_0_50px_rgba(0,0,0,0.5)]" 
+                      alt="Full screen preview"
+                  />
+              </div>
+           </motion.div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
